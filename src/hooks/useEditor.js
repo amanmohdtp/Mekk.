@@ -9,6 +9,7 @@ export const useEditor = (canvasRef) => {
   const [strokeWidth, setStrokeWidth] = useState(2);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
+  const [projectUpdated, setProjectUpdated] = useState(0);
 
   const projectRef = useRef(null);
   const historyRef = useRef([]);
@@ -33,6 +34,7 @@ export const useEditor = (canvasRef) => {
     historyRef.current = newHistory;
     setCanUndo(historyIndexRef.current > 0);
     setCanRedo(false);
+    setProjectUpdated(prev => prev + 1);
   }, []);
 
   const undo = useCallback(() => {
@@ -43,6 +45,7 @@ export const useEditor = (canvasRef) => {
       projectRef.current.importJSON(json);
       setCanUndo(historyIndexRef.current > 0);
       setCanRedo(true);
+      setProjectUpdated(prev => prev + 1);
     }
   }, []);
 
@@ -54,6 +57,7 @@ export const useEditor = (canvasRef) => {
       projectRef.current.importJSON(json);
       setCanUndo(true);
       setCanRedo(historyIndexRef.current < historyRef.current.length - 1);
+      setProjectUpdated(prev => prev + 1);
     }
   }, []);
 
@@ -116,6 +120,18 @@ export const useEditor = (canvasRef) => {
     }, { passive: false });
 
     // Initial history state
+    saveHistory();
+
+    // Add a default shape
+    const initialRect = new paper.Path.Rectangle({
+        point: [100, 100],
+        size: [200, 150],
+        strokeColor: '#ffffff',
+        fillColor: '#3b82f6',
+        strokeWidth: 2,
+        radius: 10
+    });
+    initialRect.name = 'Initial Rectangle';
     saveHistory();
 
     // Default tool: selection
@@ -271,6 +287,31 @@ export const useEditor = (canvasRef) => {
         saveHistory();
     }
 
+    // Transform Tool (Simplified Scale/Rotate)
+    const transformTool = new paper.Tool();
+    transformTool.name = 'transform';
+    
+    transformTool.onMouseDrag = (event) => {
+        const selected = paper.project.selectedItems;
+        if (selected.length > 0) {
+            const center = selected.reduce((acc, item) => acc.add(item.bounds.center), new paper.Point(0, 0)).divide(selected.length);
+            
+            if (event.modifiers.shift) {
+                // Rotate
+                const angle = event.delta.x;
+                selected.forEach(item => item.rotate(angle, center));
+            } else {
+                // Scale
+                const factor = 1 + event.delta.y / 200;
+                selected.forEach(item => item.scale(factor, center));
+            }
+        }
+    };
+
+    transformTool.onMouseUp = () => {
+        saveHistory();
+    };
+
     selectionTool.activate();
 
     return () => {
@@ -333,6 +374,57 @@ export const useEditor = (canvasRef) => {
     }
   }, [selectedItem, saveHistory]);
 
+  const applyAI = useCallback((prompt) => {
+    if (!paper.project) return;
+    
+    const items = paper.project.selectedItems.length > 0 
+      ? paper.project.selectedItems 
+      : paper.project.activeLayer.children;
+
+    if (items.length === 0) return;
+
+    // Simulate AI by applying various styles based on prompt keywords
+    const p = prompt.toLowerCase();
+    
+    items.forEach(item => {
+      if (p.includes('synthwave') || p.includes('sunset')) {
+        item.fillColor = {
+          gradient: {
+            stops: [['#ff0080', 0.05], ['#7928ca', 0.5], ['#ff0080', 0.95]]
+          },
+          origin: item.bounds.topCenter,
+          destination: item.bounds.bottomCenter
+        };
+        item.strokeColor = '#00f2ff';
+      } else if (p.includes('minimalist') || p.includes('line')) {
+        item.fillColor = 'transparent';
+        item.strokeColor = '#ffffff';
+        item.strokeWidth = 1;
+      } else if (p.includes('liquid') || p.includes('gradient')) {
+        item.fillColor = {
+          gradient: {
+            stops: [['#4facfe', 0], ['#00f2fe', 1]],
+            radial: true
+          },
+          origin: item.bounds.center,
+          destination: item.bounds.rightCenter
+        };
+      } else if (p.includes('brutalism')) {
+        item.fillColor = '#ff3e00';
+        item.strokeColor = '#000000';
+        item.strokeWidth = 4;
+        item.shadowColor = '#000000';
+        item.shadowBlur = 0;
+        item.shadowOffset = new paper.Point(5, 5);
+      } else {
+        // Random "AI" style
+        item.fillColor = paper.Color.random();
+      }
+    });
+    
+    saveHistory();
+  }, [saveHistory]);
+
   return {
     activeTool,
     setTool,
@@ -347,6 +439,8 @@ export const useEditor = (canvasRef) => {
     canUndo,
     canRedo,
     deleteSelected,
+    applyAI,
+    projectUpdated,
     paper
   };
 };

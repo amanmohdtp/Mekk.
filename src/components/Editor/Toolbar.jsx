@@ -9,7 +9,8 @@ import {
   Trash2,
   Combine,
   Scissors,
-  BoxSelect
+  BoxSelect,
+  MoveDiagonal
 } from 'lucide-react';
 
 const Toolbar = ({ 
@@ -27,6 +28,7 @@ const Toolbar = ({
     { id: 'pen', icon: <PenTool size={20} />, label: 'Pen' },
     { id: 'rect', icon: <Square size={20} />, label: 'Rectangle' },
     { id: 'circle', icon: <Circle size={20} />, label: 'Circle' },
+    { id: 'transform', icon: <MoveDiagonal size={20} />, label: 'Transform' },
   ];
 
   const booleanOps = [
