@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import paper from 'paper';
 
 export const useEditor = (canvasRef) => {
-  const [activeTool, setActiveTool] = useState('select');
+  const [activeTool, setActiveToolState] = useState('select');
   const [selectedItem, setSelectedItem] = useState(null);
   const [strokeColor, setStrokeColor] = useState('#ffffff');
   const [fillColor, setFillColor] = useState('transparent');
@@ -14,50 +14,57 @@ export const useEditor = (canvasRef) => {
   const projectRef = useRef(null);
   const historyRef = useRef([]);
   const historyIndexRef = useRef(-1);
+  const toolRefs = useRef({});
+  const styleRef = useRef({ strokeColor: '#ffffff', fillColor: 'transparent', strokeWidth: 2 });
+  const isPanningRef = useRef(false);
+
+  useEffect(() => {
+    styleRef.current = { strokeColor, fillColor, strokeWidth };
+  }, [strokeColor, fillColor, strokeWidth]);
 
   const saveHistory = useCallback(() => {
     if (!projectRef.current) return;
-    
+
     const json = projectRef.current.exportJSON();
-    
-    // Remove future history if we're in the middle of undo/redo chain
     const newHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
     newHistory.push(json);
-    
-    // Limit history size
+
     if (newHistory.length > 50) {
       newHistory.shift();
+      historyIndexRef.current = newHistory.length - 1;
     } else {
-      historyIndexRef.current++;
+      historyIndexRef.current = newHistory.length - 1;
     }
-    
+
     historyRef.current = newHistory;
     setCanUndo(historyIndexRef.current > 0);
-    setCanRedo(false);
-    setProjectUpdated(prev => prev + 1);
+    setCanRedo(historyIndexRef.current < historyRef.current.length - 1);
+    setProjectUpdated((prev) => prev + 1);
   }, []);
 
   const undo = useCallback(() => {
     if (historyIndexRef.current > 0) {
-      historyIndexRef.current--;
+      historyIndexRef.current -= 1;
       const json = historyRef.current[historyIndexRef.current];
       projectRef.current.clear();
       projectRef.current.importJSON(json);
       setCanUndo(historyIndexRef.current > 0);
       setCanRedo(true);
-      setProjectUpdated(prev => prev + 1);
+      setProjectUpdated((prev) => prev + 1);
+      setSelectedItem(null);
     }
   }, []);
 
   const redo = useCallback(() => {
     if (historyIndexRef.current < historyRef.current.length - 1) {
-      historyIndexRef.current++;
+      historyIndexRef.current += 1;
       const json = historyRef.current[historyIndexRef.current];
       projectRef.current.clear();
       projectRef.current.importJSON(json);
       setCanUndo(true);
       setCanRedo(historyIndexRef.current < historyRef.current.length - 1);
-      setProjectUpdated(prev => prev + 1);
+      setProjectUpdated((prev) => prev + 1);
+      setSelectedItem(null);
     }
   }, []);
 
@@ -66,264 +73,316 @@ export const useEditor = (canvasRef) => {
 
     paper.setup(canvasRef.current);
     projectRef.current = paper.project;
-    
-    // Setup view navigation
-    let lastZoom = paper.view.zoom;
-    let lastCenter = paper.view.center;
+    projectRef.current.clear();
+    toolRefs.current = {};
 
-    // Handle touch gestures for pan/zoom
     const canvas = canvasRef.current;
-    let initialDist = 0;
-    let initialZoom = 1;
+    let activePath = null;
+    let activeSegment = null;
+    let currentBox = null;
+    let currentCircle = null;
+    let currentLine = null;
+    let selectionTarget = null;
+    let dragItem = null;
+    let initialPanPoint = null;
 
-    let initialCenter = paper.view.center;
-    let initialTouchPos = { x: 0, y: 0 };
+    const updateSelection = (item) => {
+      projectRef.current.deselectAll();
+      if (item) {
+        item.selected = true;
+        setSelectedItem(item);
+        setStrokeColor(item.strokeColor?.toCSS(true) || '#ffffff');
+        setFillColor(item.fillColor?.toCSS?.(true) || (item.fillColor === 'transparent' ? 'transparent' : '#ffffff'));
+        setStrokeWidth(item.strokeWidth || 1);
+      } else {
+        setSelectedItem(null);
+      }
+    };
 
-    canvas.addEventListener('touchstart', (e) => {
-        if (e.touches.length === 2) {
-            initialDist = Math.hypot(
-                e.touches[0].pageX - e.touches[1].pageX,
-                e.touches[0].pageY - e.touches[1].pageY
-            );
-            initialZoom = paper.view.zoom;
-            initialCenter = paper.view.center;
-            initialTouchPos = {
-                x: (e.touches[0].pageX + e.touches[1].pageX) / 2,
-                y: (e.touches[0].pageY + e.touches[1].pageY) / 2
-            };
-        }
-    }, { passive: false });
-
-    canvas.addEventListener('touchmove', (e) => {
-        if (e.touches.length === 2) {
-            e.preventDefault();
-            
-            // Zoom
-            const dist = Math.hypot(
-                e.touches[0].pageX - e.touches[1].pageX,
-                e.touches[0].pageY - e.touches[1].pageY
-            );
-            const zoom = (dist / initialDist) * initialZoom;
-            paper.view.zoom = Math.max(0.1, Math.min(zoom, 10));
-
-            // Pan
-            const currentTouchPos = {
-                x: (e.touches[0].pageX + e.touches[1].pageX) / 2,
-                y: (e.touches[0].pageY + e.touches[1].pageY) / 2
-            };
-            const delta = {
-                x: (currentTouchPos.x - initialTouchPos.x) / paper.view.zoom,
-                y: (currentTouchPos.y - initialTouchPos.y) / paper.view.zoom
-            };
-            paper.view.center = initialCenter.subtract(new paper.Point(delta.x, delta.y));
-        }
-    }, { passive: false });
-
-    // Initial history state
-    saveHistory();
-
-    // Add a default shape
-    const initialRect = new paper.Path.Rectangle({
-        point: [100, 100],
-        size: [200, 150],
-        strokeColor: '#ffffff',
-        fillColor: '#3b82f6',
-        strokeWidth: 2,
-        radius: 10
-    });
-    initialRect.name = 'Initial Rectangle';
-    saveHistory();
-
-    // Default tool: selection
     const selectionTool = new paper.Tool();
     selectionTool.name = 'select';
-    
-    let hitItem = null;
-    let path = null;
 
     selectionTool.onMouseDown = (event) => {
-      const hitOptions = {
+      const hit = projectRef.current.hitTest(event.point, {
         segments: true,
         stroke: true,
         fill: true,
-        tolerance: 10
-      };
+        tolerance: 10,
+      });
 
-      const hitResult = paper.project.hitTest(event.point, hitOptions);
-      
-      paper.project.deselectAll();
-      setSelectedItem(null);
-
-      if (hitResult) {
-        hitItem = hitResult.item;
-        hitItem.selected = true;
-        setSelectedItem(hitItem);
-        
-        if (hitResult.type === 'segment') {
-            path = hitResult.segment;
-        } else {
-            path = hitItem;
-        }
+      if (hit) {
+        selectionTarget = hit.item;
+        selectionTarget.selected = true;
+        dragItem = hit.type === 'segment' ? hit.segment : hit.item;
+        updateSelection(selectionTarget);
       } else {
-        hitItem = null;
-        path = null;
+        selectionTarget = null;
+        dragItem = null;
+        updateSelection(null);
+      }
+
+      if (event.event.button === 1 || event.modifiers.space) {
+        isPanningRef.current = true;
+        initialPanPoint = event.point;
       }
     };
 
     selectionTool.onMouseDrag = (event) => {
-      if (path) {
-        if (path.type === 'segment') {
-            path.point = path.point.add(event.delta);
+      if (isPanningRef.current) {
+        paper.view.center = paper.view.center.subtract(event.delta);
+        return;
+      }
+
+      if (dragItem) {
+        if (dragItem instanceof paper.Segment) {
+          dragItem.point = dragItem.point.add(event.delta);
         } else {
-            path.position = path.position.add(event.delta);
+          dragItem.position = dragItem.position.add(event.delta);
         }
       }
     };
-    
-    selectionTool.onMouseUp = () => {
-        if (hitItem) {
-            saveHistory();
-        }
-    }
 
-    // Pen Tool
+    selectionTool.onMouseUp = () => {
+      if (isPanningRef.current) {
+        isPanningRef.current = false;
+      }
+      if (dragItem) {
+        saveHistory();
+      }
+      dragItem = null;
+      selectionTarget = null;
+    };
+
     const penTool = new paper.Tool();
     penTool.name = 'pen';
-    let currentPath;
-    let currentSegment;
 
     penTool.onMouseDown = (event) => {
-      if (!currentPath) {
-        currentPath = new paper.Path();
-        currentPath.strokeColor = strokeColor;
-        currentPath.fillColor = fillColor;
-        currentPath.strokeWidth = strokeWidth;
-        currentSegment = currentPath.add(event.point);
+      if (!activePath || activePath.closed) {
+        activePath = new paper.Path({
+          strokeColor: styleRef.current.strokeColor,
+          fillColor: styleRef.current.fillColor,
+          strokeWidth: styleRef.current.strokeWidth,
+          fullySelected: false,
+          selected: false,
+        });
+        activePath.add(event.point);
+        activeSegment = activePath.lastSegment;
       } else {
-        const hitResult = currentPath.hitTest(event.point, { segments: true, tolerance: 10 });
-        if (hitResult && hitResult.type === 'segment' && hitResult.segment === currentPath.firstSegment) {
-          currentPath.closed = true;
+        const hit = activePath.hitTest(event.point, { segments: true, tolerance: 10 });
+        if (hit && hit.segment === activePath.firstSegment) {
+          activePath.closed = true;
+          activePath.smooth();
           saveHistory();
-          currentPath = null;
-          currentSegment = null;
-        } else {
-          currentSegment = currentPath.add(event.point);
+          activePath = null;
+          activeSegment = null;
+          return;
         }
+        activeSegment = activePath.add(event.point);
       }
     };
 
     penTool.onMouseDrag = (event) => {
-      if (currentSegment) {
-        const delta = event.point.subtract(currentSegment.point);
-        currentSegment.handleOut = delta;
-        currentSegment.handleIn = delta.multiply(-1);
+      if (activeSegment) {
+        activeSegment.point = event.point;
       }
     };
 
     penTool.onMouseUp = () => {
-      if (currentPath && currentPath.closed) {
-          currentPath = null;
-          currentSegment = null;
+      if (activePath && activePath.segments.length > 1) {
+        activePath.smooth();
       }
-    }
+    };
 
-    // Rect Tool
     const rectTool = new paper.Tool();
     rectTool.name = 'rect';
-    let rect;
 
     rectTool.onMouseDown = (event) => {
-      rect = new paper.Path.Rectangle({
-        point: event.point,
-        size: [0, 0],
-        strokeColor: strokeColor,
-        fillColor: fillColor,
-        strokeWidth: strokeWidth
+      if (currentBox) currentBox.remove();
+      currentBox = new paper.Path.Rectangle({
+        from: event.point,
+        to: event.point,
+        strokeColor: styleRef.current.strokeColor,
+        fillColor: styleRef.current.fillColor,
+        strokeWidth: styleRef.current.strokeWidth,
       });
     };
 
     rectTool.onMouseDrag = (event) => {
-      rect.remove();
-      rect = new paper.Path.Rectangle({
+      if (currentBox) {
+        currentBox.remove();
+      }
+      currentBox = new paper.Path.Rectangle({
         from: event.downPoint,
         to: event.point,
-        strokeColor: strokeColor,
-        fillColor: fillColor,
-        strokeWidth: strokeWidth
+        strokeColor: styleRef.current.strokeColor,
+        fillColor: styleRef.current.fillColor,
+        strokeWidth: styleRef.current.strokeWidth,
       });
     };
-    
-    rectTool.onMouseUp = () => {
-        saveHistory();
-    }
 
-    // Circle Tool
+    rectTool.onMouseUp = () => {
+      if (currentBox) {
+        saveHistory();
+        currentBox = null;
+      }
+    };
+
     const circleTool = new paper.Tool();
     circleTool.name = 'circle';
-    let circle;
 
     circleTool.onMouseDown = (event) => {
-      circle = new paper.Path.Circle({
+      if (currentCircle) currentCircle.remove();
+      currentCircle = new paper.Path.Circle({
         center: event.point,
         radius: 0,
-        strokeColor: strokeColor,
-        fillColor: fillColor,
-        strokeWidth: strokeWidth
+        strokeColor: styleRef.current.strokeColor,
+        fillColor: styleRef.current.fillColor,
+        strokeWidth: styleRef.current.strokeWidth,
       });
     };
 
     circleTool.onMouseDrag = (event) => {
-      circle.remove();
-      circle = new paper.Path.Circle({
+      if (currentCircle) {
+        currentCircle.remove();
+      }
+      currentCircle = new paper.Path.Circle({
         center: event.downPoint,
         radius: event.downPoint.getDistance(event.point),
-        strokeColor: strokeColor,
-        fillColor: fillColor,
-        strokeWidth: strokeWidth
+        strokeColor: styleRef.current.strokeColor,
+        fillColor: styleRef.current.fillColor,
+        strokeWidth: styleRef.current.strokeWidth,
       });
     };
-    
-    circleTool.onMouseUp = () => {
-        saveHistory();
-    }
 
-    // Transform Tool (Simplified Scale/Rotate)
+    circleTool.onMouseUp = () => {
+      if (currentCircle) {
+        saveHistory();
+        currentCircle = null;
+      }
+    };
+
+    const lineTool = new paper.Tool();
+    lineTool.name = 'line';
+
+    lineTool.onMouseDown = (event) => {
+      if (currentLine) currentLine.remove();
+      currentLine = new paper.Path.Line({
+        from: event.point,
+        to: event.point,
+        strokeColor: styleRef.current.strokeColor,
+        strokeWidth: styleRef.current.strokeWidth,
+      });
+    };
+
+    lineTool.onMouseDrag = (event) => {
+      if (currentLine) {
+        currentLine.remove();
+        currentLine = new paper.Path.Line({
+          from: event.downPoint,
+          to: event.point,
+          strokeColor: styleRef.current.strokeColor,
+          strokeWidth: styleRef.current.strokeWidth,
+        });
+      }
+    };
+
+    lineTool.onMouseUp = () => {
+      if (currentLine) {
+        saveHistory();
+        currentLine = null;
+      }
+    };
+
     const transformTool = new paper.Tool();
     transformTool.name = 'transform';
-    
+
     transformTool.onMouseDrag = (event) => {
-        const selected = paper.project.selectedItems;
-        if (selected.length > 0) {
-            const center = selected.reduce((acc, item) => acc.add(item.bounds.center), new paper.Point(0, 0)).divide(selected.length);
-            
-            if (event.modifiers.shift) {
-                // Rotate
-                const angle = event.delta.x;
-                selected.forEach(item => item.rotate(angle, center));
-            } else {
-                // Scale
-                const factor = 1 + event.delta.y / 200;
-                selected.forEach(item => item.scale(factor, center));
-            }
-        }
+      const selectedItems = projectRef.current.selectedItems;
+      if (selectedItems.length === 0) return;
+
+      const center = selectedItems.reduce((acc, item) => acc.add(item.bounds.center), new paper.Point(0, 0)).divide(selectedItems.length);
+      if (event.modifiers.shift) {
+        const angle = event.delta.x;
+        selectedItems.forEach((item) => item.rotate(angle, center));
+      } else {
+        const factor = 1 + event.delta.y / 250;
+        selectedItems.forEach((item) => item.scale(factor, center));
+      }
     };
 
     transformTool.onMouseUp = () => {
-        saveHistory();
+      saveHistory();
+    };
+
+    toolRefs.current = {
+      select: selectionTool,
+      pen: penTool,
+      rect: rectTool,
+      circle: circleTool,
+      line: lineTool,
+      transform: transformTool,
     };
 
     selectionTool.activate();
+    setActiveToolState('select');
+
+    const handleWheel = (event) => {
+      event.preventDefault();
+      const zoomDelta = event.deltaY < 0 ? 1.12 : 0.88;
+      const newZoom = Math.min(Math.max(paper.view.zoom * zoomDelta, 0.12), 10);
+      paper.view.zoom = newZoom;
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        if (selectedItem) {
+          selectedItem.remove();
+          setSelectedItem(null);
+          saveHistory();
+        }
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+        undo();
+      }
+      if ((event.metaKey || event.ctrlKey) && (event.key.toLowerCase() === 'y' || (event.shiftKey && event.key.toLowerCase() === 'z'))) {
+        event.preventDefault();
+        redo();
+      }
+      if (event.key === 'Escape') {
+        projectRef.current.deselectAll();
+        setSelectedItem(null);
+      }
+    };
+
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    window.addEventListener('keydown', handleKeyDown);
+
+    saveHistory();
+
+    const initialRect = new paper.Path.Rectangle({
+      point: [100, 100],
+      size: [240, 160],
+      strokeColor: '#ffffff',
+      fillColor: '#3b82f6',
+      strokeWidth: 2,
+      radius: 12,
+    });
+    initialRect.name = 'Initial Rectangle';
+    saveHistory();
 
     return () => {
+      canvas.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('keydown', handleKeyDown);
       paper.project.remove();
     };
-  }, []);
+  }, [saveHistory, undo, redo]);
 
   const setTool = useCallback((toolName) => {
-    const tool = paper.tools.find(t => t.name === toolName);
+    setActiveToolState(toolName);
+    const tool = toolRefs.current[toolName];
     if (tool) {
       tool.activate();
-      setActiveTool(toolName);
     }
   }, []);
 
@@ -334,7 +393,7 @@ export const useEditor = (canvasRef) => {
         setStrokeColor(style.strokeColor);
       }
       if (style.fillColor !== undefined) {
-        selectedItem.fillColor = style.fillColor;
+        selectedItem.fillColor = style.fillColor === 'transparent' ? 'transparent' : style.fillColor;
         setFillColor(style.fillColor);
       }
       if (style.strokeWidth !== undefined) {
@@ -343,27 +402,30 @@ export const useEditor = (canvasRef) => {
       }
       saveHistory();
     } else {
-        if (style.strokeColor !== undefined) setStrokeColor(style.strokeColor);
-        if (style.fillColor !== undefined) setFillColor(style.fillColor);
-        if (style.strokeWidth !== undefined) setStrokeWidth(style.strokeWidth);
+      if (style.strokeColor !== undefined) setStrokeColor(style.strokeColor);
+      if (style.fillColor !== undefined) setFillColor(style.fillColor);
+      if (style.strokeWidth !== undefined) setStrokeWidth(style.strokeWidth);
     }
   }, [selectedItem, saveHistory]);
-  
+
   const performBoolean = useCallback((operation) => {
-      const selected = paper.project.selectedItems;
-      if (selected.length < 2) return;
-      
-      let result = selected[0];
-      for (let i = 1; i < selected.length; i++) {
-          const next = selected[i];
-          const newResult = result[operation](next);
-          result.remove();
-          next.remove();
-          result = newResult;
-      }
+    const selected = projectRef.current.selectedItems;
+    if (selected.length < 2) return;
+
+    let result = selected[0];
+    for (let i = 1; i < selected.length; i += 1) {
+      const next = selected[i];
+      const newResult = result[operation](next);
+      result.remove();
+      next.remove();
+      result = newResult;
+    }
+
+    if (result) {
       result.selected = true;
       setSelectedItem(result);
-      saveHistory();
+    }
+    saveHistory();
   }, [saveHistory]);
 
   const deleteSelected = useCallback(() => {
@@ -375,25 +437,24 @@ export const useEditor = (canvasRef) => {
   }, [selectedItem, saveHistory]);
 
   const applyAI = useCallback((prompt) => {
-    if (!paper.project) return;
-    
-    const items = paper.project.selectedItems.length > 0 
-      ? paper.project.selectedItems 
-      : paper.project.activeLayer.children;
+    if (!projectRef.current) return;
+
+    const items = projectRef.current.selectedItems.length > 0
+      ? projectRef.current.selectedItems
+      : projectRef.current.activeLayer.children;
 
     if (items.length === 0) return;
 
-    // Simulate AI by applying various styles based on prompt keywords
     const p = prompt.toLowerCase();
-    
-    items.forEach(item => {
+
+    items.forEach((item) => {
       if (p.includes('synthwave') || p.includes('sunset')) {
         item.fillColor = {
           gradient: {
-            stops: [['#ff0080', 0.05], ['#7928ca', 0.5], ['#ff0080', 0.95]]
+            stops: [['#ff0080', 0.05], ['#7928ca', 0.5], ['#ff0080', 0.95]],
           },
           origin: item.bounds.topCenter,
-          destination: item.bounds.bottomCenter
+          destination: item.bounds.bottomCenter,
         };
         item.strokeColor = '#00f2ff';
       } else if (p.includes('minimalist') || p.includes('line')) {
@@ -404,10 +465,10 @@ export const useEditor = (canvasRef) => {
         item.fillColor = {
           gradient: {
             stops: [['#4facfe', 0], ['#00f2fe', 1]],
-            radial: true
+            radial: true,
           },
           origin: item.bounds.center,
-          destination: item.bounds.rightCenter
+          destination: item.bounds.rightCenter,
         };
       } else if (p.includes('brutalism')) {
         item.fillColor = '#ff3e00';
@@ -417,11 +478,10 @@ export const useEditor = (canvasRef) => {
         item.shadowBlur = 0;
         item.shadowOffset = new paper.Point(5, 5);
       } else {
-        // Random "AI" style
         item.fillColor = paper.Color.random();
       }
     });
-    
+
     saveHistory();
   }, [saveHistory]);
 
@@ -441,6 +501,6 @@ export const useEditor = (canvasRef) => {
     deleteSelected,
     applyAI,
     projectUpdated,
-    paper
+    paper,
   };
 };

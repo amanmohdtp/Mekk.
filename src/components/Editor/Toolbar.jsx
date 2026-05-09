@@ -4,6 +4,7 @@ import {
   PenTool, 
   Square, 
   Circle, 
+  ArrowUpRight, 
   Undo2, 
   Redo2, 
   Trash2,
@@ -27,8 +28,9 @@ const Toolbar = ({
     { id: 'select', icon: <MousePointer2 size={20} />, label: 'Selection' },
     { id: 'pen', icon: <PenTool size={20} />, label: 'Pen' },
     { id: 'rect', icon: <Square size={20} />, label: 'Rectangle' },
-    { id: 'circle', icon: <Circle size={20} />, label: 'Circle' },
-    { id: 'transform', icon: <MoveDiagonal size={20} />, label: 'Transform' },
+    { id: 'circle', icon: <Circle size={20} />, label: 'Ellipse' },
+    { id: 'line', icon: <ArrowUpRight size={20} />, label: 'Line' },
+    { id: 'transform', icon: <MoveDiagonal size={20} />, label: 'Scale / Rotate' },
   ];
 
   const booleanOps = [

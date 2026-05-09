@@ -50,11 +50,52 @@ const Inspector = ({
 
         {activeTab === 'properties' ? (
           <div className="flex-col gap-6">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: '10px', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                 {selectedItem ? 'Selected Object' : 'Default Style'}
               </span>
             </div>
+
+            {selectedItem && selectedItem.bounds ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div className="flex-col gap-2">
+                  <label style={{ fontSize: '12px', color: '#9ca3af' }}>X</label>
+                  <input
+                    type="text"
+                    value={Math.round(selectedItem.bounds.x)}
+                    disabled
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.08)', background: '#151515', color: 'white' }}
+                  />
+                </div>
+                <div className="flex-col gap-2">
+                  <label style={{ fontSize: '12px', color: '#9ca3af' }}>Y</label>
+                  <input
+                    type="text"
+                    value={Math.round(selectedItem.bounds.y)}
+                    disabled
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.08)', background: '#151515', color: 'white' }}
+                  />
+                </div>
+                <div className="flex-col gap-2">
+                  <label style={{ fontSize: '12px', color: '#9ca3af' }}>Width</label>
+                  <input
+                    type="text"
+                    value={Math.round(selectedItem.bounds.width)}
+                    disabled
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.08)', background: '#151515', color: 'white' }}
+                  />
+                </div>
+                <div className="flex-col gap-2">
+                  <label style={{ fontSize: '12px', color: '#9ca3af' }}>Height</label>
+                  <input
+                    type="text"
+                    value={Math.round(selectedItem.bounds.height)}
+                    disabled
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.08)', background: '#151515', color: 'white' }}
+                  />
+                </div>
+              </div>
+            ) : null}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
               <div className="flex-col gap-2">

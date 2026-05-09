@@ -36,18 +36,25 @@ const Editor = () => {
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden', background: '#1a1a1a' }}>
       <div className="header">
-        <img src="/mekk_logo.png" alt="Mekk." className="logo" />
-        
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <img src="/mekk_logo.png" alt="Mekk." className="logo" />
+          <div>
+            <div className="header-title">Mekk. Vector Studio</div>
+            <div className="header-subtitle">Smooth vector flow, advanced exports, pro-grade tools.</div>
+          </div>
+        </div>
+
         <div className="dropdown">
           <button className="btn-export" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Download size={18} />
-            PRO EXPORT
+            EXPORT
           </button>
           <div className="dropdown-content">
-            <button onClick={() => handleExport('png')}>PNG (300 DPI)</button>
-            <button onClick={() => handleExport('jpg')}>JPG (300 DPI)</button>
+            <button onClick={() => handleExport('png')}>PNG (High Quality)</button>
+            <button onClick={() => handleExport('jpg')}>JPG (High Quality)</button>
+            <button onClick={() => handleExport('webp')}>WEBP (High Quality)</button>
             <button onClick={() => handleExport('svg')}>SVG (Vector)</button>
-            <button onClick={() => handleExport('pdf')}>PDF (Document)</button>
+            <button onClick={() => handleExport('pdf')}>PDF (Print)</button>
           </div>
         </div>
       </div>
