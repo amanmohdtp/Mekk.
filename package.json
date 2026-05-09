@@ -8,7 +8,10 @@
   },
   "dependencies": {
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "paper": "^0.12.17",
+    "framer-motion": "^11.0.0",
+    "lucide-react": "^0.400.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.0.0",
