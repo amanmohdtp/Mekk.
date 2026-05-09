@@ -2,6 +2,8 @@ import React, { useRef, useCallback } from 'react';
 import Canvas from './components/Editor/Canvas';
 import Toolbar from './components/Editor/Toolbar';
 import Inspector from './components/Editor/Inspector';
+import AIPanel from './components/Editor/AIPanel';
+import LayersPanel from './components/Editor/LayersPanel';
 import { useEditor } from './hooks/useEditor';
 import { exportProject } from './utils/exportUtils';
 import { Download } from 'lucide-react';
@@ -22,6 +24,8 @@ const Editor = () => {
     canUndo,
     canRedo,
     deleteSelected,
+    applyAI,
+    projectUpdated,
     paper
   } = useEditor(canvasRef);
 
@@ -60,6 +64,10 @@ const Editor = () => {
       />
 
       <Canvas canvasRef={canvasRef} />
+
+      <AIPanel onApplyAI={applyAI} />
+      
+      <LayersPanel projectUpdated={projectUpdated} />
 
       <Inspector 
         selectedItem={selectedItem}
